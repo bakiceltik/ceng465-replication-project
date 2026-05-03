@@ -1,0 +1,12 @@
+ operation_type |               order_id               | version | replication_delay_ms 
+----------------+--------------------------------------+---------+----------------------
+ DELETE         | 0d559923-1a01-4981-be83-12ef1e2f0ac4 |       4 |                   47
+ UPDATE         | 0d559923-1a01-4981-be83-12ef1e2f0ac4 |       3 |                  270
+ UPDATE         | 0d559923-1a01-4981-be83-12ef1e2f0ac4 |       2 |                   80
+ INSERT         | 0d559923-1a01-4981-be83-12ef1e2f0ac4 |       1 |                  435
+ DELETE         | 755ebffc-cb6b-4738-8ab3-3c11477ce784 |       4 |                  145
+ UPDATE         | 755ebffc-cb6b-4738-8ab3-3c11477ce784 |       3 |                   49
+ UPDATE         | 755ebffc-cb6b-4738-8ab3-3c11477ce784 |       2 |                   85
+ INSERT         | 755ebffc-cb6b-4738-8ab3-3c11477ce784 |       1 |                   85
+(8 rows)
+

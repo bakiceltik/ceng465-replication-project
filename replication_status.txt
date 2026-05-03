@@ -1,0 +1,5 @@
+  client_addr  |   state   | sync_state 
+---------------+-----------+------------
+ 192.168.1.106 | streaming | async
+(1 row)
+

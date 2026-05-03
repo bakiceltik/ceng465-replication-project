@@ -1,0 +1,30 @@
+CENG465 PostgreSQL Single-Leader Replication Progress Demo
+Writes go to the leader. The follower is polled until each change is visible.
+
+========================================================================
+1. Create sample order on leader
+========================================================================
+Follower saw INSERT for order 0d559923-1a01-4981-be83-12ef1e2f0ac4 in 435 ms.
+
+========================================================================
+2. Update order status: pending -> paid
+========================================================================
+Follower saw UPDATE version 2 in 80 ms.
+
+========================================================================
+3. Update order status: paid -> shipped
+========================================================================
+Follower saw UPDATE version 3 in 270 ms.
+
+========================================================================
+4. Soft-delete order: shipped -> cancelled, deleted=true
+========================================================================
+Follower saw DELETE version 4 in 47 ms.
+
+Replication Summary
+operation_type | order_id                             | version | leader_write_time             | follower_visible_time         | replication_delay_ms
+---------------+--------------------------------------+---------+-------------------------------+-------------------------------+---------------------
+INSERT         | 0d559923-1a01-4981-be83-12ef1e2f0ac4 | 1       | 2026-05-03T17:14:53.789+00:00 | 2026-05-03T17:14:54.224+00:00 | 435                 
+UPDATE         | 0d559923-1a01-4981-be83-12ef1e2f0ac4 | 2       | 2026-05-03T17:14:54.255+00:00 | 2026-05-03T17:14:54.336+00:00 | 80                  
+UPDATE         | 0d559923-1a01-4981-be83-12ef1e2f0ac4 | 3       | 2026-05-03T17:14:54.366+00:00 | 2026-05-03T17:14:54.636+00:00 | 270                 
+DELETE         | 0d559923-1a01-4981-be83-12ef1e2f0ac4 | 4       | 2026-05-03T17:14:54.661+00:00 | 2026-05-03T17:14:54.708+00:00 | 47                  
