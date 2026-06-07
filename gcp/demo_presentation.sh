@@ -3,12 +3,20 @@
 # Runs step by step. Press Enter between steps.
 # Shows leader writes replicated to follower in real time.
 
-LEADER="35.192.167.186"
-FOLLOWER="34.59.242.132"
-PORT=5432
-DB="replication_project"
-USER="ceng465"
-export PGPASSWORD="ceng465pass"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="$SCRIPT_DIR/../.env"
+if [[ ! -f "$ENV_FILE" ]]; then
+    echo "ERROR: .env not found at $ENV_FILE"
+    exit 1
+fi
+set -a; source "$ENV_FILE"; set +a
+
+LEADER="${LEADER_DB_HOST}"
+FOLLOWER="${FOLLOWER_DB_HOST}"
+PORT="${LEADER_DB_PORT:-5432}"
+DB="${LEADER_DB_NAME}"
+USER="${LEADER_DB_USER}"
+export PGPASSWORD="${LEADER_DB_PASSWORD}"
 
 L="psql -h $LEADER   -p $PORT -U $USER -d $DB"
 F="psql -h $FOLLOWER -p $PORT -U $USER -d $DB"
@@ -129,6 +137,26 @@ SELECT o.id, c.name AS customer, o.status, o.deleted, o.version
 FROM orders o JOIN customers c ON c.id = o.customer_id
 ORDER BY o.last_updated DESC LIMIT 5;
 "
+pause
+
+# ──────────────────────────────────────────────────────────────────────────────
+header "STEP 10b — HARD DELETE order then customer on LEADER (real DELETE)"
+$L -c "
+DELETE FROM orders
+WHERE customer_id = (SELECT id FROM customers WHERE email = '$CUSTOMER_EMAIL')
+RETURNING id, status;
+"
+$L -c "
+DELETE FROM customers
+WHERE email = '$CUSTOMER_EMAIL'
+RETURNING id, name, email;
+"
+pause
+
+# ──────────────────────────────────────────────────────────────────────────────
+header "STEP 10c — Verify records gone on FOLLOWER"
+$F -c "SELECT id, name, email FROM customers WHERE email = '$CUSTOMER_EMAIL';"
+echo "(0 rows expected)"
 pause
 
 # ──────────────────────────────────────────────────────────────────────────────
