@@ -7,93 +7,85 @@ from scripts.soft_delete_order import soft_delete_order
 from scripts.update_order_status import update_order_status
 
 
-def _format_time(value) -> str:
+def _fmt(value) -> str:
     return value.isoformat(timespec="milliseconds")
 
 
-def _print_step(title: str) -> None:
+def _section(title: str) -> None:
     print("\n" + "=" * 72)
     print(title)
     print("=" * 72)
 
 
-def _print_summary(results: list[dict[str, Any]]) -> None:
-    headers = [
-        "operation_type",
-        "order_id",
-        "version",
-        "leader_write_time",
-        "follower_visible_time",
-        "replication_delay_ms",
-    ]
+def _summary(results: list[dict[str, Any]]) -> None:
+    headers = ["op", "order_id", "ver", "leader_write", "follower_visible", "delay_ms"]
     rows = [
         [
-            result["operation_type"],
-            result["order_id"],
-            str(result["version"]),
-            _format_time(result["leader_write_time"]),
-            _format_time(result["follower_visible_time"]),
-            str(result["replication_delay_ms"]),
+            r["operation_type"],
+            r["order_id"][:8] + "...",
+            str(r["version"]),
+            _fmt(r["leader_write_time"]),
+            _fmt(r["follower_visible_time"]),
+            str(r["replication_delay_ms"]) + " ms",
         ]
-        for result in results
+        for r in results
     ]
     widths = [
-        max(len(header), *(len(row[index]) for row in rows))
-        for index, header in enumerate(headers)
+        max(len(h), *(len(row[i]) for row in rows))
+        for i, h in enumerate(headers)
     ]
-
     print("\nReplication Summary")
-    print(" | ".join(header.ljust(widths[index]) for index, header in enumerate(headers)))
-    print("-+-".join("-" * width for width in widths))
+    print(" | ".join(h.ljust(widths[i]) for i, h in enumerate(headers)))
+    print("-+-".join("-" * w for w in widths))
     for row in rows:
-        print(" | ".join(value.ljust(widths[index]) for index, value in enumerate(row)))
+        print(" | ".join(v.ljust(widths[i]) for i, v in enumerate(row)))
 
 
 def main() -> None:
-    print("CENG465 PostgreSQL Single-Leader Replication Progress Demo")
-    print("Writes go to the leader. The follower is polled until each change is visible.")
+    print("CENG465 — PostgreSQL Single-Leader Replication Demo")
+    print("Writes go to leader. Follower is polled until each change is visible.")
 
     results: list[dict[str, Any]] = []
 
-    _print_step("1. Create sample order on leader")
+    # ── 1. Create order ────────────────────────────────────────────────────────
+    _section("1. Create order — Ada Lovelace, 2 items")
     created = create_order(
         customer_name="Ada Lovelace",
-        product_name="Mechanical Keyboard",
-        quantity=1,
+        customer_email="ada@example.com",
+        items=[
+            ("Mechanical Keyboard", 1, 89.99),
+            ("USB-C Hub", 2, 34.99),
+        ],
+        category_name="Electronics",
     )
     results.append(created)
-    print(
-        f"Follower saw INSERT for order {created['order_id']} "
-        f"in {created['replication_delay_ms']} ms."
-    )
+    print(f"  order_id    : {created['order_id']}")
+    print(f"  customer    : {created['customer']['name']} <{created['customer']['email']}>")
+    print(f"  total       : ${created['total_amount']:.2f}")
+    print(f"  items       : {len(created['items'])}")
+    print(f"  delay       : {created['replication_delay_ms']} ms")
 
     order_id = created["order_id"]
 
-    _print_step("2. Update order status: pending -> paid")
+    # ── 2. Update: pending → paid ──────────────────────────────────────────────
+    _section("2. Update status: pending → paid")
     paid = update_order_status(order_id, "paid")
     results.append(paid)
-    print(
-        f"Follower saw UPDATE version {paid['version']} "
-        f"in {paid['replication_delay_ms']} ms."
-    )
+    print(f"  version {paid['version']} visible on follower in {paid['replication_delay_ms']} ms")
 
-    _print_step("3. Update order status: paid -> shipped")
+    # ── 3. Update: paid → shipped ──────────────────────────────────────────────
+    _section("3. Update status: paid → shipped")
     shipped = update_order_status(order_id, "shipped")
     results.append(shipped)
-    print(
-        f"Follower saw UPDATE version {shipped['version']} "
-        f"in {shipped['replication_delay_ms']} ms."
-    )
+    print(f"  version {shipped['version']} visible on follower in {shipped['replication_delay_ms']} ms")
 
-    _print_step("4. Soft-delete order: shipped -> cancelled, deleted=true")
+    # ── 4. Soft-delete ─────────────────────────────────────────────────────────
+    _section("4. Soft-delete order (deleted=TRUE, status=cancelled)")
     deleted = soft_delete_order(order_id)
     results.append(deleted)
-    print(
-        f"Follower saw DELETE version {deleted['version']} "
-        f"in {deleted['replication_delay_ms']} ms."
-    )
+    print(f"  version {deleted['version']} visible on follower in {deleted['replication_delay_ms']} ms")
 
-    _print_summary(results)
+    _summary(results)
 
 
 if __name__ == "__main__":

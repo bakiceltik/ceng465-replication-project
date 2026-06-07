@@ -7,48 +7,16 @@ from typing import Any
 
 from psycopg2.extras import Json
 
-from scripts.db import fetch_order_by_id, get_leader_connection, now_utc, row_to_dict
+from scripts.db import (
+    fetch_order_by_id,
+    get_leader_connection,
+    now_utc,
+    row_to_dict,
+)
 from scripts.measure_replication import (
     calculate_replication_delay_ms,
     wait_for_follower_order,
 )
-
-
-def _print_json(title: str, snapshot: dict[str, Any]) -> None:
-    print(f"\n{title}")
-    print(json.dumps(snapshot, indent=2, sort_keys=True))
-
-
-def _update_operation_log(
-    log_id: uuid.UUID,
-    follower_visible_time,
-    replication_delay_ms: int,
-    follower_snapshot: dict[str, Any],
-) -> None:
-    conn = get_leader_connection()
-    try:
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    UPDATE operation_log
-                    SET
-                        follower_visible_time = %s,
-                        replication_delay_ms = %s,
-                        follower_snapshot = %s,
-                        notes = %s
-                    WHERE id = %s
-                    """,
-                    (
-                        follower_visible_time,
-                        replication_delay_ms,
-                        Json(follower_snapshot),
-                        "Follower visibility confirmed by polling.",
-                        str(log_id),
-                    ),
-                )
-    finally:
-        conn.close()
 
 
 def soft_delete_order(
@@ -56,55 +24,46 @@ def soft_delete_order(
     timeout_seconds: float = 60,
     interval_seconds: float = 0.5,
 ) -> dict[str, Any]:
-    operation_id = uuid.uuid4()
-    log_id = uuid.uuid4()
+    operation_id = str(uuid.uuid4())
+    log_id = str(uuid.uuid4())
 
     conn = get_leader_connection()
     try:
         with conn:
             current = fetch_order_by_id(conn, order_id)
             if current is None:
-                raise ValueError(f"Order does not exist on leader: {order_id}")
+                raise ValueError(f"Order not found on leader: {order_id}")
 
-            expected_version = int(current["version"]) + 1
-            leader_write_time = now_utc()
+            new_version = int(current["version"]) + 1
+            write_time = now_utc()
 
             with conn.cursor() as cur:
                 cur.execute(
                     """
                     UPDATE orders
-                    SET
-                        deleted = TRUE,
-                        status = 'cancelled',
-                        version = %s,
+                    SET deleted      = TRUE,
+                        status       = 'cancelled',
+                        version      = %s,
                         operation_id = %s,
                         last_updated = NOW()
                     WHERE id = %s
                     RETURNING *
                     """,
-                    (expected_version, str(operation_id), order_id),
+                    (new_version, operation_id, order_id),
                 )
                 leader_snapshot = row_to_dict(cur.fetchone())
+
                 cur.execute(
                     """
-                    INSERT INTO operation_log (
-                        id,
-                        order_id,
-                        operation_type,
-                        version,
-                        leader_write_time,
-                        leader_snapshot,
-                        notes
-                    )
-                    VALUES (%s, %s, 'DELETE', %s, %s, %s, %s)
+                    INSERT INTO operation_log
+                        (id, table_name, record_id, operation_type, version,
+                         leader_write_time, leader_snapshot, notes)
+                    VALUES (%s, 'orders', %s, 'DELETE', %s, %s, %s, %s)
                     """,
                     (
-                        str(log_id),
-                        order_id,
-                        expected_version,
-                        leader_write_time,
+                        log_id, order_id, new_version, write_time,
                         Json(leader_snapshot),
-                        "Order soft-deleted on leader.",
+                        "Order soft-deleted (deleted=TRUE, status=cancelled).",
                     ),
                 )
     finally:
@@ -112,27 +71,39 @@ def soft_delete_order(
 
     follower_snapshot, follower_visible_time = wait_for_follower_order(
         order_id,
-        expected_version=expected_version,
-        expected_operation_id=str(operation_id),
+        expected_version=new_version,
+        expected_operation_id=operation_id,
         expected_deleted=True,
         timeout_seconds=timeout_seconds,
         interval_seconds=interval_seconds,
     )
-    replication_delay_ms = calculate_replication_delay_ms(
-        leader_write_time, follower_visible_time
-    )
-    _update_operation_log(
-        log_id, follower_visible_time, replication_delay_ms, follower_snapshot
-    )
+    delay_ms = calculate_replication_delay_ms(write_time, follower_visible_time)
+
+    conn2 = get_leader_connection()
+    try:
+        with conn2:
+            with conn2.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE operation_log
+                    SET follower_visible_time = %s,
+                        replication_delay_ms  = %s,
+                        follower_snapshot     = %s
+                    WHERE id = %s
+                    """,
+                    (follower_visible_time, delay_ms, Json(follower_snapshot), log_id),
+                )
+    finally:
+        conn2.close()
 
     return {
-        "operation_log_id": str(log_id),
+        "operation_log_id": log_id,
         "operation_type": "DELETE",
         "order_id": order_id,
-        "version": expected_version,
-        "leader_write_time": leader_write_time,
+        "version": new_version,
+        "leader_write_time": write_time,
         "follower_visible_time": follower_visible_time,
-        "replication_delay_ms": replication_delay_ms,
+        "replication_delay_ms": delay_ms,
         "leader_snapshot": leader_snapshot,
         "follower_snapshot": follower_snapshot,
     }
@@ -143,16 +114,10 @@ def main() -> None:
     parser.add_argument("--order-id", required=True)
     args = parser.parse_args()
 
-    try:
-        result = soft_delete_order(args.order_id)
-        print("\nDELETE completed and replicated to follower.")
-        _print_json("Leader snapshot:", result["leader_snapshot"])
-        _print_json("Follower snapshot:", result["follower_snapshot"])
-        print(f"\nReplication delay: {result['replication_delay_ms']} ms")
-    except Exception as exc:
-        print("Soft-delete order failed.")
-        print(f"Error: {exc}")
-        raise
+    result = soft_delete_order(args.order_id)
+    print(f"\nDELETE completed. version={result['version']} delay={result['replication_delay_ms']} ms")
+    print("\nLeader snapshot:")
+    print(json.dumps(result["leader_snapshot"], indent=2))
 
 
 if __name__ == "__main__":

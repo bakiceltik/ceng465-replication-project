@@ -16,9 +16,13 @@ def _as_utc(value: datetime) -> datetime:
 def calculate_replication_delay_ms(
     leader_write_time: datetime, follower_visible_time: datetime
 ) -> int:
-    leader_time = _as_utc(leader_write_time)
-    follower_time = _as_utc(follower_visible_time)
-    return max(0, int((follower_time - leader_time).total_seconds() * 1000))
+    return max(
+        0,
+        int(
+            (_as_utc(follower_visible_time) - _as_utc(leader_write_time)).total_seconds()
+            * 1000
+        ),
+    )
 
 
 def _matches_expected_state(
@@ -48,10 +52,8 @@ def wait_for_follower_order(
     interval_seconds: float = 0.5,
 ) -> tuple[dict[str, Any], datetime]:
     """
-    Poll the follower until the expected order state becomes visible.
-
-    The returned visible time is measured by the client script, which keeps the
-    delay calculation independent of clock differences between the two Macs.
+    Poll follower until the expected order state becomes visible.
+    Returns (snapshot_dict, follower_visible_time).
     """
     deadline = time.monotonic() + timeout_seconds
     last_snapshot = None
@@ -65,15 +67,15 @@ def wait_for_follower_order(
                 row, expected_version, expected_operation_id, expected_deleted
             ):
                 return row_to_dict(row), now_utc()
-
             last_snapshot = row_to_dict(row)
             time.sleep(interval_seconds)
     finally:
         conn.close()
 
     raise TimeoutError(
-        "Timed out waiting for follower visibility. "
-        f"order_id={order_id}, expected_version={expected_version}, "
-        f"expected_operation_id={expected_operation_id}, "
-        f"expected_deleted={expected_deleted}, last_snapshot={last_snapshot}"
+        f"Follower did not converge. order_id={order_id} "
+        f"expected_version={expected_version} "
+        f"expected_operation_id={expected_operation_id} "
+        f"expected_deleted={expected_deleted} "
+        f"last_snapshot={last_snapshot}"
     )
