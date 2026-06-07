@@ -1,0 +1,23 @@
+======================================================================
+EXPERIMENT 3 — Read-After-Write Consistency
+======================================================================
+
+[WRITE ] leader_write_time = 2026-06-07T12:06:11.141+00:00
+[WRITE ] order_id          = 8b37428b-35c6-41c8-953d-12cd072bbc85
+
+[LEADER] immediate read (t+880 ms)
+         version=1 — write IS visible  (RAW satisfied)
+
+[FOLLWR] immediate read (t+2501 ms)
+         record already visible on follower (very low lag)
+
+[FOLLWR] Polling for convergence (every 0.5s) ...
+  poll 01 | t+2666 ms | CONVERGED version=1
+
+======================================================================
+RESULT SUMMARY
+  Leader write time    : 2026-06-07T12:06:11.141+00:00
+  Leader read (ms)     : 880 ms — VISIBLE
+  Follower 1st read    : visible at t+2501 ms
+  Follower convergence : 2666 ms after write
+======================================================================
