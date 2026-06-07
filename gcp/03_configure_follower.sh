@@ -11,6 +11,9 @@ LEADER_INTERNAL_IP="10.128.0.2"
 REPL_USER="replicator"
 REPL_PASSWORD="replpass123"
 
+# Local Mac IP — update if your public IP changes
+MY_PUBLIC_IP="31.223.96.173"
+
 # ── Write remote setup script locally ─────────────────────────────────────────
 cat > /tmp/_follower_setup.sh << REMOTE
 #!/usr/bin/env bash
@@ -52,6 +55,15 @@ sudo -u postgres bash -c "cat >> \${PG_DATA}/postgresql.auto.conf << EOF
 primary_conninfo = 'host=${LEADER_INTERNAL_IP} port=5432 user=${REPL_USER} password=${REPL_PASSWORD} application_name=ceng465_follower'
 hot_standby = on
 EOF"
+
+echo "--- Configuring follower to accept external connections ---"
+PG_CONF="/etc/postgresql/\${PG_VER}/main/postgresql.conf"
+PG_HBA="/etc/postgresql/\${PG_VER}/main/pg_hba.conf"
+sudo sed -i "s|#listen_addresses = 'localhost'|listen_addresses = '*'|" "\$PG_CONF"
+sudo sed -i "s|listen_addresses = 'localhost'|listen_addresses = '*'|"  "\$PG_CONF"
+sudo bash -c "echo '' >> \$PG_HBA"
+sudo bash -c "echo 'host all all ${MY_PUBLIC_IP}/32 scram-sha-256' >> \$PG_HBA"
+sudo bash -c "echo 'host all all 10.128.0.0/9 scram-sha-256' >> \$PG_HBA"
 
 echo "--- Starting PostgreSQL follower ---"
 sudo systemctl start postgresql
