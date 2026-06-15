@@ -206,6 +206,66 @@ LIMIT 10;
 
 ---
 
+## Experiment 5 — Delete Visibility
+
+**Concept:** A delete on the leader should eventually be reflected on the follower too.
+
+**A (Leader) soft-deletes one order:**
+```sql
+UPDATE orders
+SET deleted = TRUE,
+    status = 'cancelled',
+    version = version + 1,
+    last_updated = NOW()
+WHERE customer_id = (
+    SELECT id FROM customers WHERE email = 'exp1@test.com'
+)
+RETURNING id, status, deleted, version, last_updated;
+```
+
+**B (Follower) checks the deleted flag:**
+```sql
+SELECT id, status, deleted, version, last_updated
+FROM orders
+WHERE customer_id = (
+    SELECT id FROM customers WHERE email = 'exp1@test.com'
+)
+ORDER BY last_updated DESC;
+```
+
+**Optional hard delete on Leader:**
+```sql
+DELETE FROM orders
+WHERE customer_id = (
+    SELECT id FROM customers WHERE email = 'exp1@test.com'
+)
+RETURNING id, status;
+```
+
+**B (Follower) verifies rows are gone after hard delete:**
+```sql
+SELECT id, status, deleted, version, last_updated
+FROM orders
+WHERE customer_id = (
+    SELECT id FROM customers WHERE email = 'exp1@test.com'
+);
+```
+
+**Optional evidence on Leader (`operation_log`):**
+```sql
+SELECT table_name, operation_type, version, leader_write_time, leader_snapshot
+FROM operation_log
+WHERE table_name = 'orders'
+ORDER BY leader_write_time DESC
+LIMIT 10;
+```
+
+**Expected:** The follower may briefly show the old state, but it should eventually show `deleted = TRUE` for a soft delete or `0 rows` for a hard delete.
+
+**Result:** Delete effects should replicate from leader to follower with the same eventual visibility behavior as inserts and updates.
+
+---
+
 ## Bonus — Replication Lag Measurement
 
 **A (Leader) runs:**
