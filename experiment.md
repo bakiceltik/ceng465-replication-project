@@ -12,6 +12,20 @@ psql "host=136.116.184.77 port=5432 dbname=replication_project user=ceng465 pass
 
 ---
 
+## Optional Reset Before Experiments
+
+If you want to start with a clean database state, run this on the **Leader** only:
+
+```sql
+TRUNCATE TABLE operation_log, order_items, orders, products, categories, customers CASCADE;
+```
+
+This removes old experiment data while keeping the table structure.
+
+Do **not** run reset queries on the follower in a standby setup.
+
+---
+
 ## Experiment 1 — Eventual Consistency
 
 **Concept:** Data written to the leader appears on the follower with a delay, but eventually it does appear.
@@ -26,6 +40,15 @@ RETURNING id, name, last_updated;
 **B (Follower) reads immediately:**
 ```sql
 SELECT name, last_updated FROM customers WHERE email = 'exp1@test.com';
+```
+
+**Optional evidence on Leader (`operation_log`):**
+```sql
+SELECT table_name, operation_type, version, leader_write_time, leader_snapshot
+FROM operation_log
+WHERE table_name = 'customers'
+ORDER BY leader_write_time DESC
+LIMIT 5;
 ```
 
 **Expected:** First query may return `0 rows`. Run again after 1-2 seconds — the row appears.
@@ -74,6 +97,15 @@ FROM products
 WHERE name = 'exp2_product';
 ```
 
+**Optional evidence on Leader (`operation_log`):**
+```sql
+SELECT table_name, operation_type, version, leader_write_time, leader_snapshot
+FROM operation_log
+WHERE table_name = 'products'
+ORDER BY leader_write_time DESC
+LIMIT 5;
+```
+
 **Expected:** Version sequence is `2 → 3 → 4`. Never goes backwards like `4 → 3`.
 
 **Result:** Monotonic Read guarantee holds.
@@ -103,6 +135,15 @@ WHERE name = 'exp3_category';
 SELECT name, last_updated
 FROM categories
 WHERE name = 'exp3_category';
+```
+
+**Optional evidence on Leader (`operation_log`):**
+```sql
+SELECT table_name, operation_type, version, leader_write_time, leader_snapshot
+FROM operation_log
+WHERE table_name = 'categories'
+ORDER BY leader_write_time DESC
+LIMIT 5;
 ```
 
 **Expected:**
@@ -148,6 +189,15 @@ WHERE customer_id = (
 ORDER BY last_updated ASC;
 ```
 
+**Optional evidence on Leader (`operation_log`):**
+```sql
+SELECT table_name, operation_type, version, leader_write_time, leader_snapshot
+FROM operation_log
+WHERE table_name = 'orders'
+ORDER BY leader_write_time DESC
+LIMIT 10;
+```
+
 **Expected:** The follower should show the records in the same order as they were written on the leader, although some records may appear slightly later due to asynchronous replication.
 
 **Observations:** Note whether the follower preserves write order and whether any rows are temporarily missing during early reads.
@@ -165,3 +215,24 @@ FROM pg_stat_replication;
 ```
 
 `replay_lag` → how far behind the follower is (actual replication lag).
+
+---
+
+## Optional Log Usage
+
+`operation_log` is not required for the manual experiments. Use it only as extra evidence on the leader side.
+
+It helps you show:
+- which table was written
+- whether the operation was `INSERT`, `UPDATE`, or `DELETE`
+- what version was written
+- when the write happened on the leader
+
+Quick check:
+
+```sql
+SELECT table_name, operation_type, version, leader_write_time
+FROM operation_log
+ORDER BY leader_write_time DESC
+LIMIT 10;
+```
