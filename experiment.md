@@ -19,7 +19,7 @@ psql "host=136.116.184.77 port=5432 dbname=replication_project user=ceng465 pass
 **A (Leader) writes:**
 ```sql
 INSERT INTO customers (name, email)
-VALUES ('exp1', 'exp1@test.com')
+VALUES ('exp1', 'exp3@test.com')
 RETURNING id, name, last_updated;
 ```
 
@@ -63,7 +63,7 @@ SELECT name, version, last_updated FROM customers WHERE email='exp1@test.com';
 **A (Leader) writes, then reads immediately:**
 ```sql
 INSERT INTO customers (name, email)
-VALUES ('exp3', 'exp3@test.com')
+VALUES ('exp3', 'exp5@test.com')
 RETURNING id, name, last_updated;
 ```
 
@@ -82,6 +82,41 @@ SELECT name, last_updated FROM customers WHERE email='exp3@test.com';
 - B (follower): may not see it yet, appears after a few seconds
 
 **Result:** Reading from the leader guarantees RAW (Read-After-Write) consistency. Reading from the follower does not.
+
+---
+
+## Experiment 4 — Concurrent Writes
+
+**Objective:** Test how concurrent writes to the leader are propagated to the follower.
+
+**A (Leader) performs multiple writes in quick succession:**
+```sql
+INSERT INTO customers (name, email, version)
+VALUES ('cw1', 'cw1@test.com', 1)
+RETURNING id, name, version, last_updated;
+
+INSERT INTO customers (name, email, version)
+VALUES ('cw2', 'cw2@test.com', 1)
+RETURNING id, name, version, last_updated;
+
+INSERT INTO customers (name, email, version)
+VALUES ('cw3', 'cw3@test.com', 1)
+RETURNING id, name, version, last_updated;
+```
+
+**B (Follower) reads to check visibility and order:**
+```sql
+SELECT name, email, version, last_updated
+FROM customers
+WHERE email IN ('cw1@test.com', 'cw2@test.com', 'cw3@test.com')
+ORDER BY last_updated ASC;
+```
+
+**Expected:** The follower should show the records in the same order as they were written on the leader, although some records may appear slightly later due to asynchronous replication.
+
+**Observations:** Note whether the follower preserves write order and whether any rows are temporarily missing during early reads.
+
+**Result:** Concurrent writes should propagate in leader order. Any difference is expected to be about visibility delay, not reordering.
 
 ---
 
