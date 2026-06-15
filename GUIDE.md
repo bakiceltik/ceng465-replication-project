@@ -31,10 +31,10 @@ gcloud compute instances list
 
 ```bash
 # Leader (writes)
-psql "host=35.192.167.186 port=5432 dbname=replication_project user=ceng465 password=ceng465pass"
+psql "host=35.254.173.105 port=5432 dbname=replication_project user=ceng465 password=ceng465pass"
 
 # Follower (reads / standby)
-psql "host=34.59.242.132 port=5432 dbname=replication_project user=ceng465 password=ceng465pass"
+psql "host=136.116.184.77 port=5432 dbname=replication_project user=ceng465 password=ceng465pass"
 ```
 
 ## Check Replication Status
@@ -55,13 +55,13 @@ SELECT pg_is_in_recovery();
 ```sql
 -- LEADER
 INSERT INTO customers (name, email)
-VALUES ('Ada Lovelace', 'ada@example.com')
+VALUES ('eray', 'eray@example.com')
 RETURNING id, name, version, last_updated;
 
 -- FOLLOWER (visible within a few ms)
 SELECT id, name, version, last_updated
 FROM customers
-WHERE email = 'ada@example.com';
+WHERE email = 'eray@example.com';
 ```
 
 ### UPDATE (version increments)

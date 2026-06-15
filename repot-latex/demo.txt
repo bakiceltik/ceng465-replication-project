@@ -1,0 +1,17 @@
+-- INSERT
+INSERT INTO orders (
+    id,
+    customer_name,
+    product_name,
+    quantity,
+    status,
+    operation_id
+)
+VALUES (
+    gen_random_uuid(),
+    'Demo Customer',
+    'Demo Product',
+    1,
+    'pending',
+    gen_random_uuid()
+);
