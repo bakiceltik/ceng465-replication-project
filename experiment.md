@@ -19,7 +19,7 @@ psql "host=136.116.184.77 port=5432 dbname=replication_project user=ceng465 pass
 **A (Leader) writes:**
 ```sql
 INSERT INTO customers (name, email)
-VALUES ('exp1', 'exp3@test.com')
+VALUES ('exp1_customer', 'exp1@test.com')
 RETURNING id, name, last_updated;
 ```
 
@@ -38,16 +38,40 @@ SELECT name, last_updated FROM customers WHERE email = 'exp1@test.com';
 
 **Concept:** Reading from the follower repeatedly should never return an older version than one already seen.
 
-**A (Leader) runs 3 updates in sequence:**
+**A (Leader) sets up one category and one product:**
 ```sql
-UPDATE customers SET name='v2', version=2, last_updated=NOW() WHERE email='exp1@test.com';
-UPDATE customers SET name='v3', version=3, last_updated=NOW() WHERE email='exp1@test.com';
-UPDATE customers SET name='v4', version=4, last_updated=NOW() WHERE email='exp1@test.com';
+INSERT INTO categories (name, description)
+VALUES ('exp2_category', 'Monotonic reads setup')
+ON CONFLICT (name) DO NOTHING
+RETURNING id, name, last_updated;
+
+INSERT INTO products (category_id, name, price, stock)
+SELECT id, 'exp2_product', 99.90, 10
+FROM categories
+WHERE name = 'exp2_category'
+RETURNING id, name, version, last_updated;
+```
+
+**A (Leader) runs 3 updates in sequence on the same product:**
+```sql
+UPDATE products
+SET stock = 11, version = 2, last_updated = NOW()
+WHERE name = 'exp2_product';
+
+UPDATE products
+SET stock = 12, version = 3, last_updated = NOW()
+WHERE name = 'exp2_product';
+
+UPDATE products
+SET stock = 13, version = 4, last_updated = NOW()
+WHERE name = 'exp2_product';
 ```
 
 **B (Follower) reads after each update:**
 ```sql
-SELECT name, version, last_updated FROM customers WHERE email='exp1@test.com';
+SELECT name, stock, version, last_updated
+FROM products
+WHERE name = 'exp2_product';
 ```
 
 **Expected:** Version sequence is `2 → 3 → 4`. Never goes backwards like `4 → 3`.
@@ -62,19 +86,23 @@ SELECT name, version, last_updated FROM customers WHERE email='exp1@test.com';
 
 **A (Leader) writes, then reads immediately:**
 ```sql
-INSERT INTO customers (name, email)
-VALUES ('exp3', 'exp5@test.com')
+INSERT INTO categories (name, description)
+VALUES ('exp3_category', 'Read-after-write test')
 RETURNING id, name, last_updated;
 ```
 
 ```sql
 -- A reads from leader immediately
-SELECT name, last_updated FROM customers WHERE email='exp3@test.com';
+SELECT name, last_updated
+FROM categories
+WHERE name = 'exp3_category';
 ```
 
 **B (Follower) reads at the same time:**
 ```sql
-SELECT name, last_updated FROM customers WHERE email='exp3@test.com';
+SELECT name, last_updated
+FROM categories
+WHERE name = 'exp3_category';
 ```
 
 **Expected:**
@@ -91,24 +119,32 @@ SELECT name, last_updated FROM customers WHERE email='exp3@test.com';
 
 **A (Leader) performs multiple writes in quick succession:**
 ```sql
-INSERT INTO customers (name, email, version)
-VALUES ('cw1', 'cw1@test.com', 1)
-RETURNING id, name, version, last_updated;
+INSERT INTO orders (customer_id, status, total_amount)
+SELECT id, 'pending', 25.00
+FROM customers
+WHERE email = 'exp1@test.com'
+RETURNING id, customer_id, status, total_amount, last_updated;
 
-INSERT INTO customers (name, email, version)
-VALUES ('cw2', 'cw2@test.com', 1)
-RETURNING id, name, version, last_updated;
+INSERT INTO orders (customer_id, status, total_amount)
+SELECT id, 'pending', 30.00
+FROM customers
+WHERE email = 'exp1@test.com'
+RETURNING id, customer_id, status, total_amount, last_updated;
 
-INSERT INTO customers (name, email, version)
-VALUES ('cw3', 'cw3@test.com', 1)
-RETURNING id, name, version, last_updated;
+INSERT INTO orders (customer_id, status, total_amount)
+SELECT id, 'pending', 35.00
+FROM customers
+WHERE email = 'exp1@test.com'
+RETURNING id, customer_id, status, total_amount, last_updated;
 ```
 
 **B (Follower) reads to check visibility and order:**
 ```sql
-SELECT name, email, version, last_updated
-FROM customers
-WHERE email IN ('cw1@test.com', 'cw2@test.com', 'cw3@test.com')
+SELECT id, status, total_amount, version, last_updated
+FROM orders
+WHERE customer_id = (
+    SELECT id FROM customers WHERE email = 'exp1@test.com'
+)
 ORDER BY last_updated ASC;
 ```
 
