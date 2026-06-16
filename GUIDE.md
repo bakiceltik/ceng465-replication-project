@@ -31,10 +31,10 @@ gcloud compute instances list
 
 ```bash
 # Leader (writes)
-psql "host=35.254.173.105 port=5432 dbname=replication_project user=ceng465 password=ceng465pass"
+psql "host=35.184.141.149 port=5432 dbname=replication_project user=ceng465 password=ceng465pass"
 
 # Follower (reads / standby)
-psql "host=136.116.184.77 port=5432 dbname=replication_project user=ceng465 password=ceng465pass"
+psql "host=34.63.239.194 port=5432 dbname=replication_project user=ceng465 password=ceng465pass"
 ```
 
 ## Check Replication Status
